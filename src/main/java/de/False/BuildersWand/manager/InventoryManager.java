@@ -2,8 +2,6 @@ package de.False.BuildersWand.manager;
 
 import de.False.BuildersWand.Main;
 import de.False.BuildersWand.NMS.NMS;
-import org.apache.commons.io.FilenameUtils;
-import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -41,11 +39,7 @@ public class InventoryManager
                 ItemStack[] contentArray = new ItemStack[content.size()];
                 for (int i = 0; i < content.size(); i++) {
                     ItemStack item = content.get(i);
-                    if (item != null) {
-                        contentArray[i] = item;
-                    } else {
-                        contentArray[i] = null;
-                    }
+                    contentArray[i] = item;
                 }
 
                 inventories.put(uuid, contentArray);

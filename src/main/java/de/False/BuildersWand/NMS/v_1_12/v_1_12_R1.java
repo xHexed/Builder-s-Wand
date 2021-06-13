@@ -2,7 +2,6 @@ package de.False.BuildersWand.NMS.v_1_12;
 
 import de.False.BuildersWand.Main;
 import de.False.BuildersWand.NMS.NMS;
-import de.False.BuildersWand.items.Wand;
 import net.minecraft.server.v1_12_R1.NBTTagCompound;
 import org.apache.commons.lang.StringUtils;
 import org.bukkit.*;
@@ -88,7 +87,7 @@ public class v_1_12_R1 implements NMS
     {
         NamespacedKey namespacedKey = new NamespacedKey(plugin, "buildersWand" + random.nextInt());
         ShapedRecipe shapedRecipe = new ShapedRecipe(namespacedKey, resultItemStack);
-        shapedRecipe.shape(recipeStrings.toArray(new String[recipeStrings.size()]));
+        shapedRecipe.shape(recipeStrings.toArray(new String[0]));
         for (Map.Entry<String, Material> entry: ingredients.entrySet())
         {
             String materialShortcut = entry.getKey();

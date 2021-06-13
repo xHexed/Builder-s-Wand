@@ -1,10 +1,10 @@
 package de.False.BuildersWand.utilities;
+
 import de.False.BuildersWand.ConfigurationFiles.Config;
 import de.False.BuildersWand.NMS.NMS;
 import de.False.BuildersWand.enums.ParticleShapeHidden;
 import de.False.BuildersWand.items.Wand;
 import org.bukkit.Location;
-import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;

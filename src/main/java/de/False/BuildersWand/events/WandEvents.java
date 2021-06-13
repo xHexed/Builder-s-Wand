@@ -1,15 +1,6 @@
 package de.False.BuildersWand.events;
 
-import com.bekvon.bukkit.residence.Residence;
-import com.bekvon.bukkit.residence.protection.ClaimedResidence;
-import com.bekvon.bukkit.residence.protection.ResidencePermissions;
 import com.gmail.nossr50.mcMMO;
-import com.massivecraft.factions.entity.BoardColl;
-import com.massivecraft.factions.entity.Faction;
-import com.massivecraft.factions.entity.MPlayer;
-import com.massivecraft.massivecore.ps.PS;
-import com.palmergames.bukkit.towny.object.TownyPermission;
-import com.palmergames.bukkit.towny.utils.PlayerCacheUtil;
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
 import com.wasteofplastic.askyblock.ASkyBlockAPI;
 import de.False.BuildersWand.ConfigurationFiles.Config;
@@ -23,13 +14,6 @@ import de.False.BuildersWand.manager.InventoryManager;
 import de.False.BuildersWand.manager.WandManager;
 import de.False.BuildersWand.utilities.MessageUtil;
 import de.False.BuildersWand.utilities.ParticleUtil;
-import dev.lone.itemsadder.api.ItemsAdder;
-import me.angeschossen.lands.api.integration.LandsIntegration;
-import me.angeschossen.lands.api.land.Area;
-import me.angeschossen.lands.api.role.enums.RoleSetting;
-import me.ryanhamshire.GriefPrevention.GriefPrevention;
-import net.coreprotect.CoreProtect;
-import net.coreprotect.CoreProtectAPI;
 import org.apache.commons.lang.ArrayUtils;
 import org.bukkit.*;
 import org.bukkit.block.Block;
@@ -49,13 +33,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.material.MaterialData;
 import org.bukkit.plugin.Plugin;
-import world.bentobox.bentobox.BentoBox;
-import world.bentobox.bentobox.api.user.User;
-import world.bentobox.bentobox.database.objects.Island;
-import world.bentobox.bentobox.lists.Flags;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.*;
 
 public class WandEvents implements Listener {
@@ -65,11 +43,12 @@ public class WandEvents implements Listener {
     private NMS nms;
     private WandManager wandManager;
     private InventoryManager inventoryManager;
-    private HashMap<Block, List<Block>> blockSelection = new HashMap<Block, List<Block>>();
-    private HashMap<Block, List<Block>> replacements = new HashMap<Block, List<Block>>();
-    private HashMap<Block, List<Block>> tmpReplacements = new HashMap<Block, List<Block>>();
-    public static ArrayList<canBuildHandler> canBuildHandlers = new ArrayList<canBuildHandler>();
+    private HashMap<Block, List<Block>> blockSelection = new HashMap<>();
+    private HashMap<Block, List<Block>> replacements = new HashMap<>();
+    private HashMap<Block, List<Block>> tmpReplacements = new HashMap<>();
+    public static ArrayList<canBuildHandler> canBuildHandlers = new ArrayList<>();
     private List<Material> ignoreList = new ArrayList<>();
+    private BlockQueue blockQueue;
 
     public WandEvents(Main plugin, Config config, ParticleUtil particleUtil, NMS nms, WandManager wandManager, InventoryManager inventoryManager) {
         this.plugin = plugin;
@@ -84,56 +63,84 @@ public class WandEvents implements Listener {
         ignoreList.add(Material.WATER);
 
         startScheduler();
+        blockQueue = new BlockQueue(plugin, config);
+    }
+
+    static class BlockQueue {
+        private Queue<BlockTask> tasks = new ArrayDeque<>();
+
+        public BlockQueue(Main plugin, Config config) {
+            Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+                /*
+                if (Boolean.parseBoolean(Main.config.getString("Global.Logging.Enabled"))) {
+                        Bukkit.getLogger().info("Total size: " + tasks.size());
+                }*/
+                long blockPlaced = 0;
+                while (!tasks.isEmpty() && blockPlaced < config.getMaxBlockPlacePerTick()) {
+                    BlockTask task = tasks.poll();
+                    task.block.setType(task.type);
+                    task.block.setData(task.id);
+                    blockPlaced++;
+                }
+            }, 0, 1);
+        }
+
+        public void placeBlock(Block block, Material type, byte id) {
+            tasks.add(new BlockTask(block, type, id));
+        }
+
+        static class BlockTask {
+            Block block;
+            Material type;
+            byte id;
+
+            public BlockTask(Block block, Material type, byte id) {
+                this.block = block;
+                this.type = type;
+                this.id = id;
+            }
+        }
     }
 
     private void startScheduler() {
-        Bukkit.getScheduler().runTaskTimer(plugin, new Runnable() {
-            @Override
-            public void run() {
-                blockSelection.clear();
-                tmpReplacements.clear();
-                for (Player player : Bukkit.getOnlinePlayers()) {
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            blockSelection.clear();
+            tmpReplacements.clear();
+            for (Player player : Bukkit.getOnlinePlayers()) {
 
-                    ItemStack mainHand = nms.getItemInHand(player);
-                    Wand wand = wandManager.getWand(mainHand);
-                    Set<Material> ignoreBlockTypes = new HashSet<>(Arrays.asList(Material.AIR, Material.WATER, Material.LAVA));
-                    Block block = player.getTargetBlock(ignoreBlockTypes, 5);
-                    Material blockType = block.getType();
-                    Material blockAbove = player.getLocation().add(0, 1, 0).getBlock().getType();
-                    if (
-                            ignoreList.contains(blockType)
-                                    || wand == null
-                                    || (!ignoreList.contains(blockAbove))
-                    ) {
-                        continue;
-                    }
+                ItemStack mainHand = nms.getItemInHand(player);
+                Wand wand = wandManager.getWand(mainHand);
+                Set<Material> ignoreBlockTypes = new HashSet<>(Arrays.asList(Material.AIR, Material.WATER, Material.LAVA));
+                Block block = player.getTargetBlock(ignoreBlockTypes, 5);
+                Material blockType = block.getType();
+                Material blockAbove = player.getLocation().add(0, 1, 0).getBlock().getType();
+                if (
+                        ignoreList.contains(blockType)
+                                || wand == null
+                                || (!ignoreList.contains(blockAbove))
+                ) {
+                    continue;
+                }
 
-                    List<Block> lastBlocks = player.getLastTwoTargetBlocks(ignoreBlockTypes, 5);
-                    BlockFace blockFace = lastBlocks.get(1).getFace(lastBlocks.get(0));
-                    Block blockNext = block.getRelative(blockFace);
-                    if (blockNext == null) {
-                        continue;
-                    }
+                List<Block> lastBlocks = player.getLastTwoTargetBlocks(ignoreBlockTypes, 5);
+                BlockFace blockFace = lastBlocks.get(1).getFace(lastBlocks.get(0));
+                Block blockNext = block.getRelative(blockFace);
+                if (blockNext == null) {
+                    continue;
+                }
 
-                    int itemCount = 0;
-                    if (getExternalPlugin("ItemsAdder") != null && ItemsAdder.isCustomBlock(block)) {
-                        ItemStack customBlockItemStack = ItemsAdder.getCustomBlock(block);
-                        itemCount = getCustomBlockCount(player, block, mainHand, customBlockItemStack);
-                    } else {
-                        itemCount = getItemCount(player, block, mainHand);
-                    }
+                int itemCount = getItemCount(player, block, mainHand);
 
-                    blockSelection.put(block, new ArrayList<>());
-                    tmpReplacements.put(block, new ArrayList<>());
+                blockSelection.put(block, new ArrayList<>());
+                tmpReplacements.put(block, new ArrayList<>());
 
-                    setBlockSelection(player, blockFace, itemCount, block, block, wand);
-                    replacements = tmpReplacements;
-                    List<Block> selection = blockSelection.get(block);
+                setBlockSelection(player, blockFace, itemCount, block, block, wand);
+                replacements = tmpReplacements;
+                List<Block> selection = blockSelection.get(block);
 
-                    if (wand.isParticleEnabled()) {
-                        for (Block selectionBlock : selection) {
-                            renderBlockOutlines(blockFace, selectionBlock, selection, wand, player);
-                        }
+                if (wand.isParticleEnabled()) {
+                    for (Block selectionBlock : selection) {
+                        renderBlockOutlines(blockFace, selectionBlock, selection, wand, player);
                     }
                 }
             }
@@ -187,11 +194,7 @@ public class WandEvents implements Listener {
         event.setCancelled(true);
 
         ItemStack customItemStack = null;
-        if (getExternalPlugin("ItemsAdder") != null) {
-            customItemStack = ItemsAdder.getCustomBlock(against);
-        }
 
-        ItemStack finalCustomItemStack = customItemStack;
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             for (Block selectionBlock : selection) {
                 Plugin mcMMOPlugin = getExternalPlugin("mcMMO");
@@ -199,40 +202,14 @@ public class WandEvents implements Listener {
                     mcMMO.getPlaceStore().setTrue(selectionBlock);
                 }
 
-                if (getExternalPlugin("ItemsAdder") != null && ItemsAdder.isCustomBlock(against)) {
-                    ItemsAdder.placeCustomBlock(selectionBlock.getLocation(), finalCustomItemStack);
-                } else {
-                    selectionBlock.setType(blockType);
-                    selectionBlock = nms.setBlockData(against, selectionBlock);
-                }
-
-
-                Plugin coreProtect = getExternalPlugin("CoreProtect");
-                if (coreProtect != null) {
-                    CoreProtectAPI coreProtectAPI = ((CoreProtect) coreProtect).getAPI();
-                    if (coreProtectAPI.isEnabled()) {
-                        coreProtectAPI.logPlacement(player.getName(), selectionBlock.getLocation(), blockType, selectionBlock.getData());
-                    }
-                }
-
-                try {
-                    Method m = Block.class.getMethod("setData", byte.class);
-                    m.invoke(selectionBlock, blockSubId);
-                } catch (NoSuchMethodException | IllegalAccessException
-                        | InvocationTargetException e) {
-                }
+                blockQueue.placeBlock(selectionBlock, blockType, blockSubId);
             }
 
         }, 1L);
 
-        Integer amount = selection.size();
+        int amount = selection.size();
         if (wand.isConsumeItems()) {
-            if (getExternalPlugin("ItemsAdder") != null && ItemsAdder.isCustomBlock(against)) {
-                removeCustomItemStack(ItemsAdder.getCustomBlock(against), amount, player, mainHand, customItemStack);
-            } else {
                 removeItemStack(itemStack, amount, player, mainHand);
-            }
-
         }
         if (wand.isDurabilityEnabled() && amount >= 1) {
             removeDurability(mainHand, player, wand);
@@ -364,19 +341,6 @@ public class WandEvents implements Listener {
         if (player.getGameMode() == GameMode.CREATIVE) {
             return Integer.MAX_VALUE;
         }
-
-        for (ItemStack itemStack : itemStacks) {
-            if (itemStack == null || !ItemsAdder.isCustomItem(itemStack)) {
-                continue;
-            }
-
-            if (!ItemsAdder.getCustomItemName(itemStack).equalsIgnoreCase(ItemsAdder.getCustomItemName(customBlockItemStack))) {
-                continue;
-            }
-
-            count += itemStack.getAmount();
-        }
-
         return count;
     }
 
@@ -386,8 +350,8 @@ public class WandEvents implements Listener {
             return;
         }
 
-        Integer durability = getDurability(wandItemStack, wand);
-        Integer newDurability = durability - 1;
+        int durability = getDurability(wandItemStack, wand);
+        int newDurability = durability - 1;
 
         if (newDurability <= 0) {
             inventory.removeItem(wandItemStack);
@@ -462,11 +426,11 @@ public class WandEvents implements Listener {
                 int index = inventoryItemStacksList.indexOf(inventoryItemStack);
                 inventoryItemStack.setAmount(itemAmount - amount);
                 inventoryItemStacksList.set(index, inventoryItemStack);
-                inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[inventoryItemStacksList.size()]));
+                inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[0]));
                 return;
             }
         }
-        inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[inventoryItemStacksList.size()]));
+        inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[0]));
     }
 
     private void removeCustomItemStack(ItemStack itemStack, int amount, Player player, ItemStack mainHand, ItemStack customBlockItemStack) {
@@ -476,27 +440,6 @@ public class WandEvents implements Listener {
         ItemStack[] itemStacks = inventory.getContents();
         if (player.getGameMode() == GameMode.CREATIVE) {
             return;
-        }
-        for (ItemStack inventoryItemStack : itemStacks) {
-            if (inventoryItemStack == null || !ItemsAdder.isCustomItem(inventoryItemStack) || !ItemsAdder.getCustomItemName(inventoryItemStack).equalsIgnoreCase(ItemsAdder.getCustomItemName(customBlockItemStack))) {
-                continue;
-            }
-
-            int itemAmount = inventoryItemStack.getAmount();
-            if (amount >= itemAmount) {
-                HashMap<Integer, ItemStack> didntRemovedItems = inventory.removeItem(inventoryItemStack);
-
-                if (didntRemovedItems.size() == 1) {
-                    player.getInventory().setItemInOffHand(null);
-                }
-
-                amount -= itemAmount;
-                player.updateInventory();
-            } else {
-                inventoryItemStack.setAmount(itemAmount - amount);
-                player.updateInventory();
-                return;
-            }
         }
 
         String uuid = nms.getTag(mainHand, "uuid");
@@ -518,11 +461,11 @@ public class WandEvents implements Listener {
                 int index = inventoryItemStacksList.indexOf(inventoryItemStack);
                 inventoryItemStack.setAmount(itemAmount - amount);
                 inventoryItemStacksList.set(index, inventoryItemStack);
-                inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[inventoryItemStacksList.size()]));
+                inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[0]));
                 return;
             }
         }
-        inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[inventoryItemStacksList.size()]));
+        inventoryManager.setInventory(uuid, inventoryItemStacksList.toArray(new ItemStack[0]));
     }
 
 
@@ -539,31 +482,18 @@ public class WandEvents implements Listener {
         List<String> blacklist = wand.getBlacklist();
         List<String> whitelist = wand.getWhitelist();
 
-        boolean customBlockAllowed = true;
-
-        if (
-                getExternalPlugin("ItemsAdder") != null
-                        && ItemsAdder.isCustomBlock(startBlock)
-                        && ItemsAdder.isCustomBlock(blockToCheck)
-                        && !ItemsAdder.getCustomItemName(ItemsAdder.getCustomBlock(startBlock)).equalsIgnoreCase(ItemsAdder.getCustomItemName(ItemsAdder.getCustomBlock(blockToCheck)))
-        ) {
-            customBlockAllowed = false;
-        }
-
-        if (
-                startLocation.distance(checkLocation) >= wand.getMaxSize()
-                        || !(startMaterial.equals(blockToCheckMaterial))
-                        || maxLocations <= selection.size()
-                        || blockToCheckData != startBlockData
-                        || selection.contains(blockToCheck)
-                        || !ignoreList.contains(relativeBlock)
-                        || whitelist.size() == 0 && blacklist.size() > 0 && blacklist.contains(startMaterial.toString())
-                        || blacklist.size() == 0 && whitelist.size() > 0 && !whitelist.contains(startMaterial.toString())
-                        || (!isAllowedToBuildForExternalPlugins(player, checkLocation) && !player.hasPermission("buildersWand.bypass"))
-                        || !canBuildHandlerCheck(player, checkLocation)
-                        || !player.hasPermission("buildersWand.use")
-                        || wand.hasPermission() && !player.hasPermission(wand.getPermission())
-                        || !customBlockAllowed
+        if (startLocation.distance(checkLocation) >= wand.getMaxSize() ||
+                !startMaterial.equals(blockToCheckMaterial) ||
+                maxLocations <= selection.size() ||
+                blockToCheckData != startBlockData ||
+                selection.contains(blockToCheck) ||
+                !ignoreList.contains(relativeBlock) ||
+                whitelist.size() == 0 && blacklist.size() > 0 && blacklist.contains(startMaterial.toString()) ||
+                blacklist.size() == 0 && whitelist.size() > 0 && !whitelist.contains(startMaterial.toString()) ||
+                !isAllowedToBuildForExternalPlugins(player, checkLocation) && !player.hasPermission("buildersWand.bypass") ||
+                !canBuildHandlerCheck(player, checkLocation) ||
+                !player.hasPermission("buildersWand.use") ||
+                wand.hasPermission() && !player.hasPermission(wand.getPermission())
         ) {
             return;
         }
@@ -620,24 +550,24 @@ public class WandEvents implements Listener {
         Block blockDownNorth = selectionBlock.getRelative(0, -1, -1);
         Block blockUpNorth = selectionBlock.getRelative(0, 1, -1);
 
-        Boolean blockEastContains = selection.contains(blockEast);
-        Boolean blockWestContains = selection.contains(blockWest);
-        Boolean blockNorthContains = selection.contains(blockNorth);
-        Boolean blockSouthContains = selection.contains(blockSouth);
-        Boolean blockUpContains = selection.contains(blockUp);
-        Boolean blockDownContains = selection.contains(blockDown);
-        Boolean blockNorthWestContains = selection.contains(blockNorthWest);
-        Boolean blockNorthEastContains = selection.contains(blockNorthEast);
-        Boolean blockSouthEastContains = selection.contains(blockSouthEast);
-        Boolean blockSouthWestContains = selection.contains(blockSouthWest);
-        Boolean blockDownEastContains = selection.contains(blockDownEast);
-        Boolean blockUpEastContains = selection.contains(blockUpEast);
-        Boolean blockDownWestContains = selection.contains(blockDownWest);
-        Boolean blockUpWestContains = selection.contains(blockUpWest);
-        Boolean blockDownSouthContains = selection.contains(blockDownSouth);
-        Boolean blockUpSouthContains = selection.contains(blockUpSouth);
-        Boolean blockDownNorthContains = selection.contains(blockDownNorth);
-        Boolean blockUpNorthContains = selection.contains(blockUpNorth);
+        boolean blockEastContains = selection.contains(blockEast);
+        boolean blockWestContains = selection.contains(blockWest);
+        boolean blockNorthContains = selection.contains(blockNorth);
+        boolean blockSouthContains = selection.contains(blockSouth);
+        boolean blockUpContains = selection.contains(blockUp);
+        boolean blockDownContains = selection.contains(blockDown);
+        boolean blockNorthWestContains = selection.contains(blockNorthWest);
+        boolean blockNorthEastContains = selection.contains(blockNorthEast);
+        boolean blockSouthEastContains = selection.contains(blockSouthEast);
+        boolean blockSouthWestContains = selection.contains(blockSouthWest);
+        boolean blockDownEastContains = selection.contains(blockDownEast);
+        boolean blockUpEastContains = selection.contains(blockUpEast);
+        boolean blockDownWestContains = selection.contains(blockDownWest);
+        boolean blockUpWestContains = selection.contains(blockUpWest);
+        boolean blockDownSouthContains = selection.contains(blockDownSouth);
+        boolean blockUpSouthContains = selection.contains(blockUpSouth);
+        boolean blockDownNorthContains = selection.contains(blockDownNorth);
+        boolean blockUpNorthContains = selection.contains(blockUpNorth);
 
         if (blockEastContains) {
             shapes.add(ParticleShapeHidden.EAST);
@@ -698,37 +628,6 @@ public class WandEvents implements Listener {
     }
 
     private boolean isAllowedToBuildForExternalPlugins(Player player, Location location) {
-        Plugin LandsPlugin = getExternalPlugin("Lands");
-        if (LandsPlugin != null) {
-            LandsIntegration landsIntegration = new LandsIntegration(plugin);
-            Area area = landsIntegration.getAreaByLoc(location);
-            if (area == null) {
-                return true;
-            }
-            return area.canSetting(player.getUniqueId(), RoleSetting.BLOCK_PLACE);
-        }
-
-
-        Plugin townyPlugin = getExternalPlugin("Towny");
-        if (townyPlugin != null) {
-            if (!PlayerCacheUtil.getCachePermission(player, location, Material.STONE, TownyPermission.ActionType.BUILD)) {
-                return false;
-            }
-        }
-
-        Plugin residencePlugin = getExternalPlugin("Residence");
-        if (residencePlugin != null) {
-            ClaimedResidence res = Residence.getInstance().getResidenceManager().getByLoc(location);
-            if (res == null) {
-                return false;
-            }
-
-            ResidencePermissions perms = res.getPermissions();
-            if (!perms.playerHas(player, com.bekvon.bukkit.residence.containers.Flags.build, false)) {
-                return false;
-            }
-        }
-
         Plugin worldGuardPlugin = getExternalPlugin("WorldGuard");
         if (worldGuardPlugin instanceof WorldGuardPlugin) {
             if (!WorldGuardAPI.getWorldGuardAPI().allows(player, location)) {
@@ -736,106 +635,15 @@ public class WandEvents implements Listener {
             }
         }
 
-        Plugin bentoBox = getExternalPlugin("BentoBox");
-        if (bentoBox != null) {
-            BentoBox bentoBoxapi = BentoBox.getInstance();
-            User user = User.getInstance(player);
-            Optional<Island> island = bentoBoxapi.getIslands().getIslandAt(location);
-            if (island.isPresent() && !island.get().isAllowed(user, Flags.PLACE_BLOCKS)) {
-                return false;
-            }
-        }
-
-        Plugin plotSquared = getExternalPlugin("PlotSquared");
-        if (plotSquared != null) {
-//
-//            PlotAPI plotAPI = new PlotAPI();
-//            com.github.intellectualsites.plotsquared.plot.object.Location plotSquaredLocation = new com.github.intellectualsites.plotsquared.plot.object.Location(location.getWorld().toString(), (int) location.getX(), (int) location.getY(), (int) location.getZ());
-//            Plot plot = plotAPI.getPlotSquared().getApplicablePlotArea(plotSquaredLocation).getPlot(plotSquaredLocation);
-//            if (plot != null && !plot.isAdded(player.getUniqueId())) {
-//                return false;
-//            }
-        }
-
         Plugin aSkyBlock = getExternalPlugin("ASkyBlock");
         if (aSkyBlock != null) {
             ASkyBlockAPI aSkyBlockAPI = ASkyBlockAPI.getInstance();
-            if (!aSkyBlockAPI.locationIsOnIsland(player, location)) {
-                return false;
-            }
-        }
-
-        Plugin griefPreventionPlugin = getExternalPlugin("GriefPrevention");
-        if (griefPreventionPlugin != null) {
-            GriefPrevention griefPrevention = GriefPrevention.instance;
-            if (griefPrevention.allowBuild(player, location) != null) {
-                return false;
-            }
-        }
-
-        Plugin factionsPlugin = getExternalPlugin("Factions");
-        if (factionsPlugin != null) {
-//            String mainClass = factionsPlugin.getDescription().getMain();
-//            if (mainClass.equals("com.massivecraft.factions.Factions")) {
-//                MPlayer mPlayer = MPlayer.get(player);
-//                Faction faction = BoardColl.get().getFactionAt(PS.valueOf(location));
-//                if (faction != mPlayer.getFaction()) {
-//                    return false;
-//                }
-//            } else if (mainClass.equals("com.massivecraft.factions.SavageFactions")) {
-//                FPlayer fPlayer = FPlayers.getInstance().getByPlayer(player);
-//                FLocation fLoc = new FLocation(location);
-//                com.massivecraft.factions.event.
-//                com.massivecraft.factions.Faction faction = Board.getInstance().getFactionAt(fLoc);
-//                if (faction != fPlayer.getFaction()) {
-//                    return false;
-//                }
-//            }
+            return aSkyBlockAPI.locationIsOnIsland(player, location);
         }
         return true;
     }
 
     private boolean isAllowedToBuildForExternalPlugins(Player player, List<Block> selection) {
-        Plugin LandsPlugin = getExternalPlugin("Lands");
-        if (LandsPlugin != null) {
-            LandsIntegration landsIntegration = new LandsIntegration(plugin);
-            for (Block selectionBlock : selection) {
-                Area area = landsIntegration.getAreaByLoc(selectionBlock.getLocation());
-                if (area == null) {
-                    continue;
-                }
-
-                if (!area.canSetting(player.getUniqueId(), RoleSetting.BLOCK_PLACE)) {
-                    return false;
-                }
-                ;
-            }
-        }
-
-        Plugin townyPlugin = getExternalPlugin("Towny");
-        if (townyPlugin != null) {
-            for (Block selectionBlock : selection) {
-                if (!PlayerCacheUtil.getCachePermission(player, selectionBlock.getLocation(), Material.STONE, TownyPermission.ActionType.BUILD)) {
-                    return false;
-                }
-            }
-        }
-
-        Plugin residencePlugin = getExternalPlugin("Residence");
-        if (residencePlugin != null) {
-            for (Block selectionBlock : selection) {
-                ClaimedResidence res = Residence.getInstance().getResidenceManager().getByLoc(selectionBlock.getLocation());
-                if (res == null) {
-                    return false;
-                }
-
-                ResidencePermissions perms = res.getPermissions();
-                if (!perms.playerHas(player, com.bekvon.bukkit.residence.containers.Flags.build, false)) {
-                    return false;
-                }
-            }
-        }
-
         Plugin worldGuardPlugin = getExternalPlugin("WorldGuard");
         if (worldGuardPlugin instanceof WorldGuardPlugin) {
             for (Block selectionBlock : selection) {
@@ -845,30 +653,7 @@ public class WandEvents implements Listener {
             }
         }
 
-        Plugin bentoBox = getExternalPlugin("BentoBox");
-        if (bentoBox != null) {
-            BentoBox bentoBoxapi = BentoBox.getInstance();
-            User user = User.getInstance(player);
-            for (Block selectionBlock : selection) {
-                Optional<Island> island = bentoBoxapi.getIslands().getIslandAt(selectionBlock.getLocation());
-                if (island.isPresent() && !island.get().isAllowed(user, Flags.PLACE_BLOCKS)) {
-                    return false;
-                }
-            }
-        }
 
-        Plugin plotSquared = getExternalPlugin("PlotSquared");
-        if (plotSquared != null) {
-//            PlotAPI plotAPI = new PlotAPI();
-//            for (Block selectionBlock : selection) {
-//                Location location = selectionBlock.getLocation();
-//                com.github.intellectualsites.plotsquared.plot.object.Location plotSquaredLocation = new com.github.intellectualsites.plotsquared.plot.object.Location(location.getWorld().toString(), (int) location.getX(), (int) location.getY(), (int) location.getZ());
-//                Plot plot = plotAPI.getPlotSquared().getApplicablePlotArea(plotSquaredLocation).getPlot(plotSquaredLocation);
-//                if (plot != null && !plot.isAdded(player.getUniqueId())) {
-//                    return false;
-//                }
-//            }
-        }
 
         Plugin aSkyBlock = getExternalPlugin("ASkyBlock");
         if (aSkyBlock != null) {
@@ -879,40 +664,6 @@ public class WandEvents implements Listener {
                 }
             }
         }
-
-        Plugin griefPreventionPlugin = getExternalPlugin("GriefPrevention");
-        if (griefPreventionPlugin != null) {
-            GriefPrevention griefPrevention = GriefPrevention.instance;
-            for (Block selectionBlock : selection) {
-                if (griefPrevention.allowBuild(player, selectionBlock.getLocation()) != null) {
-                    return false;
-                }
-            }
-        }
-
-        Plugin factionsPlugin = getExternalPlugin("Factions");
-        if (factionsPlugin != null) {
-            String mainClass = factionsPlugin.getDescription().getMain();
-            if (mainClass.equals("com.massivecraft.factions.Factions")) {
-                MPlayer mPlayer = MPlayer.get(player);
-                for (Block selectionBlock : selection) {
-                    Faction faction = BoardColl.get().getFactionAt(PS.valueOf(selectionBlock.getLocation()));
-                    if (faction == mPlayer.getFaction()) {
-                        return false;
-                    }
-                }
-            } else if (mainClass.equals("com.massivecraft.factions.SavageFactions")) {
-//                FPlayer fPlayer = FPlayers.getInstance().getByPlayer(player);
-//                for (Block selectionBlock : selection) {
-//                    FLocation fLoc = new FLocation(selectionBlock.getLocation());
-//                    com.massivecraft.factions.Faction faction = Board.getInstance().getFactionAt(fLoc);
-//                    if (faction != fPlayer.getFaction()) {
-//                        return false;
-//                    }
-//                }
-            }
-        }
-
         return true;
     }
 
